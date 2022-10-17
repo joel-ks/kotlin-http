@@ -1,0 +1,25 @@
+# Auto detect text files and perform LF normalization
+*               text=auto
+
+# Known source/doc/config file types
+*.java          text diff=java
+*.kt            text diff=kotlin
+*.gradle        text diff=java
+*.gradle.kts    text diff=kotlin
+*.md            text diff=markdown
+*.properties    text
+
+# Scripts
+# *nix scripts should use always use lf
+*.bash          text eol=lf
+*.sh            text eol=lf
+*.zsh           text eol=lf
+/gradlew        text eol=lf
+# Windows scripts should always use crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+
+# These files are binary and should be left untouched
+# (binary is a macro for -text -diff)
+*.jar           binary
