@@ -4,27 +4,33 @@ import jks.utilities.connectionDetails
 import jks.utilities.using
 import joptsimple.OptionParser
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.io.Reader
-import java.io.Writer
 import java.net.ServerSocket
 
 private const val ARG_PORT = "port"
 private const val TIMEOUT_MS = 30 * 1000
 
+private val CHARSET = Charsets.US_ASCII // HTTP 0.7 spec defined the message to be ASCII encoded text
+
 // Technically should be \r\n but the spec says "A well-behaved server will not require the carriage return character."
 private const val TERMINATOR = '\n'
 private const val SEPARATOR = ' '
 
-private val DOCUMENTS = mapOf(
+private val MESSAGES = mapOf(
     "/" to "index",
     "/greeting" to "hello world"
 )
-private const val ERROR_BAD_REQUEST = "Bad request"
-private const val ERROR_NOT_FOUND = "Not found"
+
+private const val ERROR_BAD_REQUEST = "BadRequest.html"
+private const val ERROR_NOT_FOUND = "NotFound.html"
+
+private object ResourceOpener {
+    fun getResourceAsStream(name: String): InputStream = javaClass.classLoader.getResourceAsStream(name) ?: throw Exception("Could not find resource $name")
+}
 
 fun main(args: Array<String>) {
-    val charset = Charsets.US_ASCII // HTTP 0.7 spec defined the message to be ASCII encoded text
-
     val opts = buildOptionsParser().parse(*args)
     val port = opts.valueOf(ARG_PORT) as Int
 
@@ -39,8 +45,8 @@ fun main(args: Array<String>) {
 
                     socket.soTimeout = TIMEOUT_MS
 
-                    val inStream = socket.getInputStream().reader(charset).buffered().closeWhenDone()
-                    val outStream = socket.getOutputStream().writer(charset).buffered().closeWhenDone()
+                    val inStream = socket.getInputStream().reader(CHARSET).buffered().closeWhenDone()
+                    val outStream = socket.getOutputStream().buffered().closeWhenDone()
                     processHttpConnection(inStream, outStream)
                     outStream.flush()
 
@@ -57,7 +63,38 @@ fun main(args: Array<String>) {
 }
 
 @Throws(IOException::class)
-private fun processHttpConnection(inStream: Reader, outStream: Writer) {
+private fun processHttpConnection(inStream: Reader, outStream: OutputStream) {
+    val documentPath = readHttpRequest(inStream)
+
+    if (documentPath == null) {
+        ResourceOpener.getResourceAsStream(ERROR_BAD_REQUEST).transferTo(outStream)
+        return
+    }
+
+    val message = MESSAGES[documentPath]
+    if (message == null) {
+        ResourceOpener.getResourceAsStream(ERROR_NOT_FOUND).transferTo(outStream)
+        return
+    }
+
+    val document = """
+        <!DOCTYPE html>
+        <html lang="en">
+            <head>
+                <meta charset="${CHARSET.name()}">
+                <title>Success!</title>
+            </head>
+            <body>
+                $message
+            </body>
+        </html> 
+    """.trimIndent()
+
+    document.byteInputStream(CHARSET).transferTo(outStream)
+}
+
+@Throws(IOException::class)
+private fun readHttpRequest(inStream: Reader): String? {
     // Request format:
     // GET <address>\r\n
     // - address must not contain whitespace
@@ -84,33 +121,20 @@ private fun processHttpConnection(inStream: Reader, outStream: Writer) {
         else sb.append(next.toChar())
     }
 
-    if (hitTerminator || sb.toString() != "GET") {
-        outStream.write(ERROR_BAD_REQUEST)
-        return
-    }
+    if (hitTerminator || sb.toString() != "GET") return null
 
     sb.clear()
     var hitSeparator = false
     while (true) {
         val next = inStream.read()
 
-        if (next == -1) {
-            outStream.write(ERROR_BAD_REQUEST)
-            return
-        } else if (next == TERMINATOR.code) break
+        if (next == -1) return null
+        else if (next == TERMINATOR.code) break
         else if (next == SEPARATOR.code) hitSeparator = true // We want to consume, but ignore, any extraneous content up to the terminator
         else if (!hitSeparator) sb.append(next.toChar())
     }
 
-    val documentPath = sb.toString().trim() // remove possible \r
-
-    val document = DOCUMENTS[documentPath]
-    if (document == null) {
-        outStream.write(ERROR_NOT_FOUND)
-        return
-    }
-
-    outStream.write(document)
+    return sb.toString().trim() // remove possible '\r'
 }
 
 private fun buildOptionsParser(): OptionParser {
