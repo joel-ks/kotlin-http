@@ -2,15 +2,11 @@ package jks.http.server
 
 import jks.utilities.connectionDetails
 import jks.utilities.using
-import joptsimple.OptionParser
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.Reader
 import java.net.ServerSocket
-
-private const val ARG_PORT = "port"
-private const val TIMEOUT_MS = 30 * 1000
 
 private val CHARSET = Charsets.US_ASCII // HTTP 0.7 spec defined the message to be ASCII encoded text
 
@@ -31,10 +27,9 @@ private object ResourceOpener {
 }
 
 fun main(args: Array<String>) {
-    val opts = buildOptionsParser().parse(*args)
-    val port = opts.valueOf(ARG_PORT) as Int
+    val config = parseCommandLine(args)
 
-    ServerSocket(port).use { serverSocket ->
+    ServerSocket(config.port).use { serverSocket ->
         println("Listening on ${serverSocket.inetAddress}:${serverSocket.localPort}...")
 
         while (true) {
@@ -43,7 +38,7 @@ fun main(args: Array<String>) {
                     val socket = serverSocket.accept().closeWhenDone()
                     println("Connection accepted from ${socket.connectionDetails()} on port ${socket.localPort}")
 
-                    socket.soTimeout = TIMEOUT_MS
+                    socket.soTimeout = config.timeout
 
                     val inStream = socket.getInputStream().reader(CHARSET).buffered().closeWhenDone()
                     val outStream = socket.getOutputStream().buffered().closeWhenDone()
@@ -135,11 +130,4 @@ private fun readHttpRequest(inStream: Reader): String? {
     }
 
     return sb.toString().trim() // remove possible '\r'
-}
-
-private fun buildOptionsParser(): OptionParser {
-    val parser = OptionParser()
-    parser.accepts(ARG_PORT).withRequiredArg().ofType(Int::class.java)
-
-    return parser
 }
