@@ -18,5 +18,5 @@ dependencies {
 }
 
 application {
-    mainClass.set("jks.http.server.AppKt")
+    mainClass.set("jks.http.server.app.AppKt")
 }

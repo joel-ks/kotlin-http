@@ -1,18 +1,23 @@
-package jks.http.server
+package jks.http.server.app
 
+import jks.http.server.HttpServer
 import joptsimple.OptionException
 import joptsimple.OptionParser
+import java.nio.file.Path
 import kotlin.system.exitProcess
 
-data class AppConfiguration(
-    val port: Int,
-    val timeout: Int,
-    val webRoot: String,
-    val defaultPage: String,
-    val badRequestPage: String,
-    val notFoundPage: String,
-    val internalServerErrorPage: String
-)
+fun main(args: Array<String>) {
+    val config = parseCommandLine(args)
+
+    HttpServer.build(config.port) {
+        timeout = config.timeout
+        routingConfig.webRoot = Path.of(config.webRoot)
+        routingConfig.defaultFileName = config.defaultPage
+        badRequestPage = Path.of(config.badRequestPage)
+        notFoundPage = Path.of(config.notFoundPage)
+        internalServerErrorPage = Path.of(config.internalServerErrorPage)
+    }.listen()
+}
 
 private const val ARG_HELP_SHORT = "h"
 private const val ARG_HELP_LONG = "help"
