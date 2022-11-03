@@ -1,3 +1,7 @@
+### Server files ###
+pages/
+webroot/
+
 ### Java/Kotlin ###
 # Compiled class file
 *.class

@@ -3,10 +3,15 @@ package jks.http.server
 import jks.utilities.connectionDetails
 import jks.utilities.using
 import java.io.IOException
-import java.io.InputStream
 import java.io.OutputStream
 import java.io.Reader
 import java.net.ServerSocket
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
+import kotlin.io.path.exists
+import kotlin.io.path.isDirectory
+import kotlin.system.exitProcess
 
 private val CHARSET = Charsets.US_ASCII // HTTP 0.7 spec defined the message to be ASCII encoded text
 
@@ -14,20 +19,9 @@ private val CHARSET = Charsets.US_ASCII // HTTP 0.7 spec defined the message to 
 private const val TERMINATOR = '\n'
 private const val SEPARATOR = ' '
 
-private val MESSAGES = mapOf(
-    "/" to "index",
-    "/greeting" to "hello world"
-)
-
-private const val ERROR_BAD_REQUEST = "BadRequest.html"
-private const val ERROR_NOT_FOUND = "NotFound.html"
-
-private object ResourceOpener {
-    fun getResourceAsStream(name: String): InputStream = javaClass.classLoader.getResourceAsStream(name) ?: throw Exception("Could not find resource $name")
-}
-
 fun main(args: Array<String>) {
     val config = parseCommandLine(args)
+    checkEnvironment(config)
 
     ServerSocket(config.port).use { serverSocket ->
         println("Listening on ${serverSocket.inetAddress}:${serverSocket.localPort}...")
@@ -42,7 +36,7 @@ fun main(args: Array<String>) {
 
                     val inStream = socket.getInputStream().reader(CHARSET).buffered().closeWhenDone()
                     val outStream = socket.getOutputStream().buffered().closeWhenDone()
-                    processHttpConnection(inStream, outStream)
+                    processHttpConnection(inStream, outStream, config)
                     outStream.flush()
 
                     println("Ending connection with ${socket.connectionDetails()} on port ${socket.localPort}")
@@ -57,35 +51,40 @@ fun main(args: Array<String>) {
     }
 }
 
+private fun checkEnvironment(config: AppConfiguration) {
+    println("Running in ${System.getProperty("user.dir")}")
+
+    if (!Paths.get(config.webRoot).exists()) {
+        println("Could not find web root ${config.webRoot}")
+        exitProcess(-1)
+    }
+    if (!Paths.get(config.badRequestPage).exists()) {
+        println("Could not find bad request page ${config.badRequestPage}")
+        exitProcess(-1)
+    }
+    if (!Paths.get(config.notFoundPage).exists()) {
+        println("Could not find not found page ${config.notFoundPage}")
+        exitProcess(-1)
+    }
+    if (!Paths.get(config.internalServerErrorPage).exists()) {
+        println("Could not find internal server error page ${config.internalServerErrorPage}")
+        exitProcess(-1)
+    }
+}
+
 @Throws(IOException::class)
-private fun processHttpConnection(inStream: Reader, outStream: OutputStream) {
+private fun processHttpConnection(inStream: Reader, outStream: OutputStream, config: AppConfiguration) {
     val documentPath = readHttpRequest(inStream)
 
-    if (documentPath == null) {
-        ResourceOpener.getResourceAsStream(ERROR_BAD_REQUEST).transferTo(outStream)
-        return
+    if (documentPath == null) sendFile(Paths.get(config.badRequestPage), outStream)
+    else {
+        var requestedDocument = Paths.get(config.webRoot, documentPath)
+        if (requestedDocument.exists() && requestedDocument.isDirectory())
+            requestedDocument = requestedDocument.resolve(config.defaultPage)
+
+        if (requestedDocument.exists()) sendFile(requestedDocument, outStream)
+        else sendFile(Paths.get(config.notFoundPage), outStream)
     }
-
-    val message = MESSAGES[documentPath]
-    if (message == null) {
-        ResourceOpener.getResourceAsStream(ERROR_NOT_FOUND).transferTo(outStream)
-        return
-    }
-
-    val document = """
-        <!DOCTYPE html>
-        <html lang="en">
-            <head>
-                <meta charset="${CHARSET.name()}">
-                <title>Success!</title>
-            </head>
-            <body>
-                $message
-            </body>
-        </html> 
-    """.trimIndent()
-
-    document.byteInputStream(CHARSET).transferTo(outStream)
 }
 
 @Throws(IOException::class)
@@ -130,4 +129,8 @@ private fun readHttpRequest(inStream: Reader): String? {
     }
 
     return sb.toString().trim() // remove possible '\r'
+}
+
+private fun sendFile(file: Path, outputStream: OutputStream) {
+    Files.newInputStream(file).buffered().use { it.transferTo(outputStream) }
 }
